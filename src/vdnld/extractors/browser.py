@@ -26,11 +26,17 @@ class BrowserMediaCandidate:
     content_length: int = -1
 
 
-def capture_media_requests(url: str, timeout_ms: int = 8_000) -> BrowserMediaCandidate:
+def capture_media_requests(
+    url: str,
+    timeout_ms: int = 8_000,
+    *,
+    proxy_url: str | None = None,
+) -> BrowserMediaCandidate:
     return _capture_media_requests(
         url=url,
         timeout_ms=timeout_ms,
         headless=False,
+        proxy_url=proxy_url,
     )
 
 
@@ -38,6 +44,7 @@ def interactive_capture_media_requests(
     url: str,
     timeout_ms: int = 30_000,
     *,
+    proxy_url: str | None = None,
     prompt_fn: PromptFn = input,
     printer: PrintFn = print,
 ) -> BrowserMediaCandidate:
@@ -46,6 +53,7 @@ def interactive_capture_media_requests(
         timeout_ms=timeout_ms,
         headless=False,
         interactive=True,
+        proxy_url=proxy_url,
         prompt_fn=prompt_fn,
         printer=printer,
     )
@@ -57,6 +65,7 @@ def _capture_media_requests(
     *,
     headless: bool,
     interactive: bool = False,
+    proxy_url: str | None = None,
     prompt_fn: PromptFn | None = None,
     printer: PrintFn | None = None,
 ) -> BrowserMediaCandidate:
@@ -73,7 +82,9 @@ def _capture_media_requests(
     try:
         with sync_playwright() as playwright:
             browser = _launch_browser(playwright, headless=headless)
+            proxy = {"server": proxy_url} if proxy_url else None
             context = browser.new_context(
+                proxy=proxy,
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "

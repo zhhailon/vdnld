@@ -8,6 +8,11 @@ dependencies = [
     "playwright>=1.58.0",
 ]
 
+[project.optional-dependencies]
+tor = [
+    "pysocks>=1.7.1",
+]
+
 [project.scripts]
 vdnld = "vdnld.cli:main"
 

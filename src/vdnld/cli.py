@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Clear the local download cache for this target and exit.",
     )
+    parser.add_argument(
+        "--tor",
+        action="store_true",
+        help="Route all traffic through the local Tor SOCKS5 proxy (127.0.0.1:9150 for Tor Browser, 9050 for tor daemon). Requires PySocks: pip install 'vdnld[tor]'.",
+    )
     return parser
 
 
@@ -65,4 +70,5 @@ def main() -> None:
         plan_only=args.plan_only,
         resume=not args.no_resume,
         clear_cache=args.clear_cache,
+        tor=args.tor,
     )
