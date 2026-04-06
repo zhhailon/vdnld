@@ -247,6 +247,8 @@ def _plan_from_browser_candidate(
         plan.title = candidate.title
         plan.notes = f"{plan.notes}; extracted via browser"
         plan.request_headers = request_headers
+        if plan.strategy == "hls_media":
+            plan.selected_url = response.url
         if plan.strategy == "hls_master" and plan.selected_url:
             try:
                 media_response = _fetch_browser_text(

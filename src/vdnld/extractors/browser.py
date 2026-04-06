@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from importlib import import_module
 from typing import Callable
@@ -29,7 +30,7 @@ def capture_media_requests(url: str, timeout_ms: int = 8_000) -> BrowserMediaCan
     return _capture_media_requests(
         url=url,
         timeout_ms=timeout_ms,
-        headless=True,
+        headless=False,
     )
 
 
@@ -71,9 +72,20 @@ def _capture_media_requests(
     candidates: list[BrowserMediaCandidate] = []
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=headless)
-            context = browser.new_context()
+            browser = _launch_browser(playwright, headless=headless)
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 720},
+                locale="zh-CN",
+            )
+            _apply_stealth(context)
             page = context.new_page()
+
+            page_title: list[str | None] = [None]
 
             def on_response(response: object) -> None:
                 response_url = response.url
@@ -88,7 +100,7 @@ def _capture_media_requests(
                     response_url,
                     content_type,
                     request_headers,
-                    title=_page_title(page),
+                    title=page_title[0],
                     content_length=content_length,
                 )
                 if candidate is not None:
@@ -96,6 +108,7 @@ def _capture_media_requests(
 
             page.on("response", on_response)
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            page_title[0] = _page_title(page)
             if interactive:
                 if printer is not None:
                     printer(f"interactive browser opened for: {url}")
@@ -103,18 +116,23 @@ def _capture_media_requests(
                     printer("Return here and press Enter when the media has started loading.")
                 if prompt_fn is not None:
                     prompt_fn("")
-                if not candidates:
-                    _trigger_playback(page)
+                if printer is not None:
+                    printer("capturing media requests, please wait...")
+                time.sleep(10)
+                if printer is not None:
+                    printer("closing browser...")
             else:
-                _raise_if_challenge_page(page)
-                _trigger_playback(page)
-            page.wait_for_timeout(6_000)
-            if not interactive:
-                _raise_if_challenge_page(page)
-            elif not candidates and _is_challenge_page(page):
-                raise BrowserChallengeError(
-                    "site protection challenge still appears active after manual interaction"
-                )
+                if _is_challenge_page(page):
+                    time.sleep(12)
+                if not _is_challenge_page(page):
+                    _trigger_playback(page)
+                else:
+                    raise BrowserChallengeError(
+                        "site protection challenge detected; complete verification in a normal browser and provide a user-authorized session"
+                    )
+                time.sleep(8)
+                if not candidates:
+                    _raise_if_challenge_page(page)
             browser.close()
     except BrowserChallengeError:
         raise
@@ -125,6 +143,49 @@ def _capture_media_requests(
         raise BrowserExtractionError("no media requests were observed during browser playback")
 
     return _choose_best_candidate(candidates)
+
+
+def _launch_browser(playwright: object, *, headless: bool) -> object:
+    """Try real Chrome, then Edge, then fall back to bundled Chromium. Always incognito."""
+    args = ["--incognito"]
+    for channel in ("chrome", "msedge"):
+        try:
+            return playwright.chromium.launch(channel=channel, headless=headless, args=args)
+        except Exception:
+            continue
+    return playwright.chromium.launch(headless=headless, args=args)
+
+
+def _apply_stealth(context: object) -> None:
+    """Inject JavaScript to mask Playwright's automation fingerprint."""
+    context.add_init_script("""
+        (() => {
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+                configurable: true,
+            });
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => ({ length: 5 }),
+                configurable: true,
+            });
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['zh-CN', 'zh', 'en-US', 'en'],
+                configurable: true,
+            });
+            if (!window.chrome) {
+                window.chrome = { runtime: {} };
+            }
+            const origQuery = navigator.permissions && navigator.permissions.query
+                ? navigator.permissions.query.bind(navigator.permissions)
+                : null;
+            if (origQuery) {
+                navigator.permissions.query = (params) =>
+                    params.name === 'notifications'
+                        ? Promise.resolve({ state: Notification.permission })
+                        : origQuery(params);
+            }
+        })();
+    """)
 
 
 def _trigger_playback(page: object) -> None:
