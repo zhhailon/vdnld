@@ -1,0 +1,16 @@
+[project]
+name = "vdnld"
+version = "0.1.0"
+description = "CLI downloader inspired by Video DownloadHelper."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "playwright>=1.58.0",
+]
+
+[project.scripts]
+vdnld = "vdnld.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.10.11,<0.11.0"]
+build-backend = "uv_build"
