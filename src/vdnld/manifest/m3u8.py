@@ -30,6 +30,27 @@ class M3U8Playlist:
             return None
         return max(self.variants, key=lambda item: item.bandwidth or -1)
 
+    def select_variant(self, quality: str | None = None) -> M3U8Variant | None:
+        if not self.variants:
+            return None
+
+        normalized = (quality or "highest").strip().lower()
+        if normalized in {"highest", "best", "max"}:
+            return self.best_variant()
+        if normalized in {"lowest", "worst", "min"}:
+            return min(self.variants, key=lambda item: item.bandwidth or float("inf"))
+
+        height = _parse_quality_height(normalized)
+        if height is not None:
+            return _select_variant_by_height(self.variants, height)
+
+        if "x" in normalized:
+            exact = [variant for variant in self.variants if (variant.resolution or "").lower() == normalized]
+            if exact:
+                return max(exact, key=lambda item: item.bandwidth or -1)
+
+        return None
+
 
 def parse_m3u8(text: str, base_url: str) -> M3U8Playlist:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -87,3 +108,38 @@ def _parse_int(value: str | None) -> int | None:
         return int(value)
     except ValueError:
         return None
+
+
+def _parse_quality_height(value: str) -> int | None:
+    if value.endswith("p"):
+        return _parse_int(value[:-1])
+    if "x" in value:
+        _, _, raw_height = value.partition("x")
+        return _parse_int(raw_height)
+    return None
+
+
+def _variant_height(variant: M3U8Variant) -> int | None:
+    if not variant.resolution or "x" not in variant.resolution:
+        return None
+    _, _, raw_height = variant.resolution.lower().partition("x")
+    return _parse_int(raw_height)
+
+
+def _select_variant_by_height(variants: list[M3U8Variant], target_height: int) -> M3U8Variant | None:
+    with_heights = [(variant, _variant_height(variant)) for variant in variants]
+    with_heights = [(variant, height) for variant, height in with_heights if height is not None]
+    if not with_heights:
+        return None
+
+    exact_or_lower = [(variant, height) for variant, height in with_heights if height <= target_height]
+    if exact_or_lower:
+        return max(
+            exact_or_lower,
+            key=lambda item: (item[1], item[0].bandwidth or -1),
+        )[0]
+
+    return min(
+        with_heights,
+        key=lambda item: (item[1], -(item[0].bandwidth or -1)),
+    )[0]

@@ -23,6 +23,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Target output path for the downloaded media.",
     )
     parser.add_argument(
+        "-q",
+        "--quality",
+        help="HLS quality to select from master playlists: highest, lowest, 720p, or 1280x720. Defaults to highest.",
+    )
+    parser.add_argument(
         "--browser",
         action="store_true",
         help="Allow Playwright browser fallback when static probing is insufficient.",
@@ -65,6 +70,7 @@ def main() -> None:
     run(
         url=args.url,
         output=args.output,
+        quality=args.quality,
         browser_fallback=args.browser,
         interactive_browser=args.interactive_browser,
         plan_only=args.plan_only,

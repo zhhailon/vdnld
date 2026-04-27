@@ -132,6 +132,53 @@ seg0.ts
             self.assertEqual((segments_dir / "00000.ts").read_bytes(), b"fresh")
             self.assertTrue(playlist_path.exists())
 
+    def test_download_hls_media_playlist_selects_master_quality(self) -> None:
+        responses = {
+            "https://example.com/master.m3u8": HttpTextResponse(
+                url="https://example.com/master.m3u8",
+                content_type="application/vnd.apple.mpegurl",
+                text="""#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=1000,RESOLUTION=640x360
+small.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=5000,RESOLUTION=1920x1080
+large.m3u8
+""",
+            ),
+            "https://example.com/small.m3u8": HttpTextResponse(
+                url="https://example.com/small.m3u8",
+                content_type="application/vnd.apple.mpegurl",
+                text="""#EXTM3U
+#EXTINF:5.0,
+seg0.ts
+""",
+            ),
+        }
+
+        def fake_fetch(url: str) -> HttpTextResponse:
+            return responses[url]
+
+        downloads: list[str] = []
+
+        def fake_download(url: str, destination: Path, *, request_headers=None) -> None:
+            downloads.append(url)
+            destination.write_bytes(b"segment")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "video.mp4"
+
+            from unittest.mock import patch
+
+            with patch("vdnld.download.hls._download_segment", side_effect=fake_download):
+                playlist_path = download_hls_media_playlist(
+                    "https://example.com/master.m3u8",
+                    output_path,
+                    fetcher=fake_fetch,
+                    quality="360p",
+                )
+
+            self.assertEqual(downloads, ["https://example.com/seg0.ts"])
+            self.assertTrue(playlist_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

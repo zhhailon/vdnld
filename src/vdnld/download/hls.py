@@ -25,6 +25,7 @@ def download_hls_media_playlist(
     fetcher=fetch_text,
     progress_callback=None,
     resume: bool = True,
+    quality: str | None = None,
 ) -> Path:
     if not resume:
         clear_download_cache(output_path)
@@ -36,9 +37,9 @@ def download_hls_media_playlist(
     playlist_response = _fetch_text(source_url, request_headers=request_headers, fetcher=fetcher)
     playlist = parse_m3u8(playlist_response.text, base_url=playlist_response.url)
     if playlist.kind == "master":
-        variant = playlist.best_variant()
+        variant = playlist.select_variant(quality)
         if variant is None:
-            raise HlsDownloadError("master playlist did not contain any variants")
+            raise HlsDownloadError("master playlist did not contain a matching variant")
         playlist_response = _fetch_text(variant.uri, request_headers=request_headers, fetcher=fetcher)
         playlist = parse_m3u8(playlist_response.text, base_url=playlist_response.url)
     if playlist.kind != "media":

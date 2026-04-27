@@ -14,6 +14,7 @@ def run(
     url: str,
     output: str | None,
     *,
+    quality: str | None = None,
     ffmpeg_required: bool = True,
     browser_fallback: bool = False,
     interactive_browser: bool = False,
@@ -31,12 +32,13 @@ def run(
         _print_tor_info()
 
     base_probe = interactive_capture_media_requests if interactive_browser else capture_media_requests
-    browser_probe = functools.partial(base_probe, proxy_url=proxy_url)
+    browser_probe = functools.partial(base_probe, proxy_url=proxy_url) if proxy_url else base_probe
     plan = plan_download(
         url=url,
         output=output,
         browser_fallback=browser_fallback or interactive_browser,
         browser_probe=browser_probe,
+        quality=quality,
     )
     _print_plan(plan)
     if clear_cache:

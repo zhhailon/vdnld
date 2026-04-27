@@ -29,6 +29,30 @@ large.m3u8
         self.assertEqual(plan.selected_url, "https://example.com/large.m3u8")
         self.assertTrue(plan.executable)
 
+    def test_plan_download_can_select_hls_quality(self) -> None:
+        def fake_fetch(url: str) -> HttpTextResponse:
+            return HttpTextResponse(
+                url=url,
+                content_type="application/vnd.apple.mpegurl",
+                text="""#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=1000,RESOLUTION=640x360
+small.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=5000,RESOLUTION=1920x1080
+large.m3u8
+""",
+            )
+
+        plan = plan_download(
+            "https://example.com/master.m3u8",
+            output=None,
+            fetcher=fake_fetch,
+            quality="360p",
+        )
+
+        self.assertEqual(plan.strategy, "hls_master")
+        self.assertEqual(plan.selected_url, "https://example.com/small.m3u8")
+        self.assertIn("selected quality 360p", plan.notes)
+
     def test_plan_download_falls_back_to_direct(self) -> None:
         def fake_fetch(url: str) -> HttpTextResponse:
             return HttpTextResponse(

@@ -27,6 +27,7 @@
 uv run vdnld --help
 uv run vdnld https://example.com/video
 uv run vdnld https://example.com/video -o output.mp4
+uv run vdnld https://example.com/master.m3u8 --quality 720p
 uv run vdnld --browser https://example.com/page
 uv run vdnld --interactive-browser https://example.com/page
 uv run vdnld --interactive-browser --plan-only https://example.com/page
@@ -43,6 +44,7 @@ Set `UV_CACHE_DIR=/tmp/uv-cache` to control where uv stores its cache (useful in
 |------|-------------|
 | `url` | Source page or media URL |
 | `-o / --output` | Output file path (auto-derived from title or URL if omitted) |
+| `-q / --quality` | HLS quality for master playlists: `highest`, `lowest`, `720p`, or `1280x720` |
 | `--browser` | Enable Playwright headless browser fallback |
 | `--interactive-browser` | Open a visible browser for manual login/playback, then resume |
 | `--plan-only` | Print the download plan and exit without running ffmpeg |
@@ -55,7 +57,7 @@ Set `UV_CACHE_DIR=/tmp/uv-cache` to control where uv stores its cache (useful in
 - Routes YouTube and Vimeo URLs to site-specific extractors
 - Probes generic URLs over HTTP
 - Detects and parses HLS playlists (master and media M3U8)
-- Selects the highest-bandwidth variant from a master playlist
+- Selects the highest-bandwidth variant from a master playlist by default, with `--quality` override
 - Falls back to browser extraction when static probing is insufficient
 
 **YouTube extractor:**

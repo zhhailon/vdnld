@@ -38,15 +38,16 @@ def plan_download(
     fetcher: FetchText = fetch_text,
     browser_probe: BrowserProbe = capture_media_requests,
     browser_fallback: bool = True,
+    quality: str | None = None,
 ) -> DownloadPlan:
     extractor = choose_extractor(url)
 
     if extractor == "youtube":
-        youtube_plan = _plan_youtube(url, output, fetcher)
+        youtube_plan = _plan_youtube(url, output, fetcher, quality=quality)
         if youtube_plan is not None:
             return youtube_plan
         if browser_fallback:
-            browser_plan = _plan_with_browser(url, output, fetcher, browser_probe)
+            browser_plan = _plan_with_browser(url, output, fetcher, browser_probe, quality=quality)
             if browser_plan is not None:
                 return browser_plan
         return DownloadPlan(
@@ -63,7 +64,7 @@ def plan_download(
 
     if extractor == "vimeo":
         if browser_fallback:
-            browser_plan = _plan_with_browser(url, output, fetcher, browser_probe)
+            browser_plan = _plan_with_browser(url, output, fetcher, browser_probe, quality=quality)
             if browser_plan is not None:
                 return browser_plan
         return DownloadPlan(
@@ -82,7 +83,7 @@ def plan_download(
         response = fetcher(url)
     except FetchError as exc:
         if browser_fallback:
-            browser_plan = _plan_with_browser(url, output, fetcher, browser_probe)
+            browser_plan = _plan_with_browser(url, output, fetcher, browser_probe, quality=quality)
             if browser_plan is not None:
                 return browser_plan
         return DownloadPlan(
@@ -99,7 +100,7 @@ def plan_download(
 
     if _looks_like_m3u8(url=url, response=response):
         playlist = parse_m3u8(response.text, base_url=response.url)
-        return _plan_hls(url=url, output=output, extractor=extractor, playlist=playlist)
+        return _plan_hls(url=url, output=output, extractor=extractor, playlist=playlist, quality=quality)
 
     plan = DownloadPlan(
         url=url,
@@ -113,7 +114,7 @@ def plan_download(
         executable=_looks_like_direct_media(response),
     )
     if not plan.executable and browser_fallback:
-        browser_plan = _plan_with_browser(url, output, fetcher, browser_probe)
+        browser_plan = _plan_with_browser(url, output, fetcher, browser_probe, quality=quality)
         if browser_plan is not None:
             return browser_plan
     return plan
@@ -133,9 +134,13 @@ def _plan_hls(
     output: str | None,
     extractor: str,
     playlist: M3U8Playlist,
+    quality: str | None = None,
 ) -> DownloadPlan:
     if playlist.kind == "master":
-        best = playlist.best_variant()
+        selected = playlist.select_variant(quality)
+        notes = f"{len(playlist.variants)} variants discovered"
+        if quality:
+            notes = f"{notes}; selected quality {quality}"
         return DownloadPlan(
             url=url,
             output=output,
@@ -143,9 +148,9 @@ def _plan_hls(
             strategy="hls_master",
             needs_merge=False,
             title=None,
-            selected_url=best.uri if best else url,
-            notes=f"{len(playlist.variants)} variants discovered",
-            executable=best is not None,
+            selected_url=selected.uri if selected else url,
+            notes=notes if selected else f"{notes}; no matching variant",
+            executable=selected is not None,
         )
 
     return DownloadPlan(
@@ -176,7 +181,13 @@ def _looks_like_direct_media(response: "HttpResponseLike") -> bool:
     return lower_url.endswith((".mp4", ".m4a", ".mp3", ".webm", ".mkv", ".aac"))
 
 
-def _plan_youtube(url: str, output: str | None, fetcher: FetchText) -> DownloadPlan | None:
+def _plan_youtube(
+    url: str,
+    output: str | None,
+    fetcher: FetchText,
+    *,
+    quality: str | None = None,
+) -> DownloadPlan | None:
     try:
         response = fetcher(url)
         extraction = extract_youtube_media(response.text)
@@ -189,7 +200,7 @@ def _plan_youtube(url: str, output: str | None, fetcher: FetchText) -> DownloadP
     if extraction.source == "hls_manifest":
         manifest_response = fetcher(extraction.url)
         playlist = parse_m3u8(manifest_response.text, base_url=manifest_response.url)
-        plan = _plan_hls(url, output, "youtube", playlist)
+        plan = _plan_hls(url, output, "youtube", playlist, quality=quality)
         plan.notes = extraction.notes
         return plan
 
@@ -213,6 +224,8 @@ def _plan_with_browser(
     output: str | None,
     fetcher: FetchText,
     browser_probe: "BrowserProbe",
+    *,
+    quality: str | None = None,
 ) -> DownloadPlan | None:
     try:
         candidate = browser_probe(url)
@@ -230,7 +243,7 @@ def _plan_with_browser(
         )
     except BrowserExtractionError:
         return None
-    return _plan_from_browser_candidate(url, output, candidate, fetcher)
+    return _plan_from_browser_candidate(url, output, candidate, fetcher, quality=quality)
 
 
 def _plan_from_browser_candidate(
@@ -238,12 +251,14 @@ def _plan_from_browser_candidate(
     output: str | None,
     candidate: BrowserMediaCandidate,
     fetcher: FetchText,
+    *,
+    quality: str | None = None,
 ) -> DownloadPlan:
     request_headers = _filter_request_headers(candidate.request_headers)
     if candidate.kind == "hls":
         response = _fetch_browser_text(candidate.url, request_headers=request_headers, fetcher=fetcher)
         playlist = parse_m3u8(response.text, base_url=response.url)
-        plan = _plan_hls(original_url, output, "browser", playlist)
+        plan = _plan_hls(original_url, output, "browser", playlist, quality=quality)
         plan.title = candidate.title
         plan.notes = f"{plan.notes}; extracted via browser"
         plan.request_headers = request_headers
