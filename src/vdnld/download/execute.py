@@ -229,7 +229,7 @@ def build_ffmpeg_command(
     if request_headers:
         header_blob = "".join(f"{key}: {value}\r\n" for key, value in request_headers.items())
         command.extend(["-headers", header_blob])
-    if local_input or local_hls:
+    if local_hls:
         # Local HLS remux can reference cached segments with nonstandard suffixes
         # such as .jpeg even when the payload is valid media data.
         command.extend(["-allowed_extensions", "ALL"])

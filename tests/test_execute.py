@@ -42,15 +42,24 @@ class ExecutePlanTests(unittest.TestCase):
         self.assertIn("referer: https://example.com", header_blob)
         self.assertIn("user-agent: vdnld-test", header_blob)
 
-    def test_build_ffmpeg_command_allows_nonstandard_extensions_for_local_input(self) -> None:
+    def test_build_ffmpeg_command_allows_nonstandard_extensions_for_local_hls(self) -> None:
         command = build_ffmpeg_command(
             source_url=".video.vdnld/playlist.m3u8",
             output_path=Path("video.mp4"),
-            local_input=True,
+            local_hls=True,
         )
         self.assertIn("-allowed_extensions", command)
         self.assertEqual(command[command.index("-allowed_extensions") + 1], "ALL")
         self.assertIn("-protocol_whitelist", command)
+
+    def test_build_ffmpeg_command_does_not_use_hls_options_for_local_direct_input(self) -> None:
+        command = build_ffmpeg_command(
+            source_url=".video.vdnld/source.mp4",
+            output_path=Path("video.mp4"),
+            local_input=True,
+        )
+        self.assertNotIn("-allowed_extensions", command)
+        self.assertNotIn("-protocol_whitelist", command)
 
     def test_resolve_output_path_uses_explicit_output(self) -> None:
         plan = DownloadPlan(
