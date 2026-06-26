@@ -33,6 +33,8 @@ uv run vdnld --interactive-browser https://example.com/page
 uv run vdnld --interactive-browser --plan-only https://example.com/page
 uv run vdnld --no-resume https://example.com/video
 uv run vdnld --clear-cache https://example.com/video
+uv run vdnld "magnet:?xt=urn:btih:..." -o downloads/torrents
+uv run vdnld https://example.com/file.torrent -o downloads/torrents
 uv run python -m unittest discover -s tests -v
 ```
 
@@ -42,8 +44,8 @@ Set `UV_CACHE_DIR=/tmp/uv-cache` to control where uv stores its cache (useful in
 
 | Flag | Description |
 |------|-------------|
-| `url` | Source page or media URL |
-| `-o / --output` | Output file path (auto-derived from title or URL if omitted) |
+| `url` | Source page, media URL, magnet link, or `.torrent` file |
+| `-o / --output` | Output file path for media downloads; output directory for torrent/magnet downloads |
 | `-q / --quality` | HLS quality for master playlists: `highest`, `lowest`, `720p`, or `1280x720` |
 | `--browser` | Enable Playwright headless browser fallback |
 | `--interactive-browser` | Open a visible browser for manual login/playback, then resume |
@@ -57,6 +59,7 @@ Set `UV_CACHE_DIR=/tmp/uv-cache` to control where uv stores its cache (useful in
 - Routes YouTube and Vimeo URLs to site-specific extractors
 - Probes generic URLs over HTTP
 - Detects and parses HLS playlists (master and media M3U8)
+- Detects magnet links and `.torrent` files for `aria2c` execution
 - Selects the highest-bandwidth variant from a master playlist by default, with `--quality` override
 - Falls back to browser extraction when static probing is insufficient
 
@@ -72,6 +75,7 @@ Set `UV_CACHE_DIR=/tmp/uv-cache` to control where uv stores its cache (useful in
 **Execution:**
 - Downloads direct media to a local cache and remuxes with `ffmpeg -c copy`
 - Downloads HLS segments to a local cache and remuxes with `ffmpeg -c copy`
+- Downloads magnet links and `.torrent` files with `aria2c`
 - Resumes interrupted downloads from a `.<name>.vdnld/` cache directory
 - Renders live ffmpeg progress (percentage bar when duration is known, elapsed time otherwise)
 - Fails early with a clear error if `ffmpeg` is not on `PATH`
@@ -84,6 +88,13 @@ Set `UV_CACHE_DIR=/tmp/uv-cache` to control where uv stores its cache (useful in
 ```bash
 which ffmpeg
 ffmpeg -version
+```
+
+`aria2c` must be on `PATH` for magnet links and `.torrent` files:
+
+```bash
+which aria2c
+aria2c --version
 ```
 
 Playwright is required only when using `--browser` or `--interactive-browser`:

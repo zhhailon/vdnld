@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from time import monotonic
+from time import monotonic, sleep
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -178,15 +178,28 @@ def _download_segment(
     destination: Path,
     *,
     request_headers: dict[str, str] | None,
+    attempts: int = 5,
+    retry_delay_seconds: float = 1.0,
 ) -> int:
     request = Request(url, headers=request_headers or {})
-    try:
-        with urlopen(request, timeout=30.0) as response:
-            raw = response.read()
-    except Exception as exc:  # pragma: no cover - normalized below
-        raise HlsDownloadError(f"failed to download segment {url}: {exc}") from exc
-    destination.write_bytes(raw)
-    return len(raw)
+    attempts = max(1, attempts)
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with urlopen(request, timeout=30.0) as response:
+                raw = response.read()
+            partial_destination = destination.with_name(f"{destination.name}.part")
+            partial_destination.write_bytes(raw)
+            partial_destination.replace(destination)
+            return len(raw)
+        except Exception as exc:  # pragma: no cover - normalized below
+            last_exc = exc
+            if attempt >= attempts:
+                break
+            sleep(retry_delay_seconds * attempt)
+    raise HlsDownloadError(
+        f"failed to download segment {url} after {attempts} attempts: {last_exc}"
+    ) from last_exc
 
 
 def _segment_filename(index: int, uri: str) -> str:

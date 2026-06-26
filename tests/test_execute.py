@@ -7,7 +7,9 @@ from vdnld.download.execute import (
     _render_progress_line,
     derive_output_basename,
     DownloadExecutionError,
+    build_aria2c_command,
     build_ffmpeg_command,
+    build_ffmpeg_mux_command,
     clear_plan_cache,
     default_suffix_for_plan,
     execute_plan,
@@ -41,6 +43,49 @@ class ExecutePlanTests(unittest.TestCase):
         header_blob = command[command.index("-headers") + 1]
         self.assertIn("referer: https://example.com", header_blob)
         self.assertIn("user-agent: vdnld-test", header_blob)
+
+    def test_build_ffmpeg_mux_command_maps_video_and_audio(self) -> None:
+        command = build_ffmpeg_mux_command(
+            video_source=".video.vdnld/source.m4s",
+            audio_source=".audio.vdnld/source.m4s",
+            output_path=Path("video.mp4"),
+        )
+        self.assertEqual(
+            command,
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                ".video.vdnld/source.m4s",
+                "-i",
+                ".audio.vdnld/source.m4s",
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-c",
+                "copy",
+                "video.mp4",
+            ],
+        )
+
+    def test_build_aria2c_command_downloads_to_directory(self) -> None:
+        command = build_aria2c_command(
+            source_url="magnet:?xt=urn:btih:abc",
+            output_dir=Path("downloads"),
+        )
+        self.assertEqual(
+            command,
+            [
+                "aria2c",
+                "--continue=true",
+                "--seed-time=0",
+                "--summary-interval=5",
+                "--dir",
+                "downloads",
+                "magnet:?xt=urn:btih:abc",
+            ],
+        )
 
     def test_build_ffmpeg_command_allows_nonstandard_extensions_for_local_hls(self) -> None:
         command = build_ffmpeg_command(
@@ -155,6 +200,62 @@ class ExecutePlanTests(unittest.TestCase):
             duration_seconds=None,
             resume=True,
         )
+
+    def test_execute_plan_routes_browser_direct_mux_to_video_audio_downloader(self) -> None:
+        plan = DownloadPlan(
+            url="https://example.com/page",
+            output="video.mp4",
+            extractor="browser",
+            strategy="browser_direct_mux",
+            needs_merge=True,
+            selected_url="https://cdn.example.com/video.m4s",
+            audio_url="https://cdn.example.com/audio.m4s",
+            request_headers={"referer": "https://example.com/video"},
+            audio_request_headers={"referer": "https://example.com/audio"},
+            executable=True,
+        )
+        with patch("vdnld.download.execute.run_direct_mux_download") as run_mux:
+            output_path = execute_plan(plan)
+        self.assertEqual(output_path, Path("video.mp4"))
+        run_mux.assert_called_once_with(
+            video_url="https://cdn.example.com/video.m4s",
+            audio_url="https://cdn.example.com/audio.m4s",
+            output_path=Path("video.mp4"),
+            video_request_headers={"referer": "https://example.com/video"},
+            audio_request_headers={"referer": "https://example.com/audio"},
+            duration_seconds=None,
+            resume=True,
+        )
+
+    def test_execute_plan_routes_torrent_to_aria2c(self) -> None:
+        plan = DownloadPlan(
+            url="magnet:?xt=urn:btih:abc",
+            output="downloads/torrents",
+            extractor="torrent",
+            strategy="torrent",
+            needs_merge=False,
+            selected_url="magnet:?xt=urn:btih:abc",
+            executable=True,
+        )
+        with patch("vdnld.download.execute.run_aria2c_download") as run_aria2c:
+            output_path = execute_plan(plan, resume=False)
+        self.assertEqual(output_path, Path("downloads/torrents"))
+        run_aria2c.assert_called_once_with(
+            source_url="magnet:?xt=urn:btih:abc",
+            output_dir=Path("downloads/torrents"),
+            resume=False,
+        )
+
+    def test_resolve_output_path_defaults_torrent_to_downloads_directory(self) -> None:
+        plan = DownloadPlan(
+            url="magnet:?xt=urn:btih:abc",
+            output=None,
+            extractor="torrent",
+            strategy="torrent",
+            needs_merge=False,
+            executable=True,
+        )
+        self.assertEqual(resolve_output_path(plan), Path("downloads"))
 
     def test_execute_plan_passes_resume_flag_to_direct_download(self) -> None:
         plan = DownloadPlan(

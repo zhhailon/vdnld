@@ -40,6 +40,60 @@ class BrowserExtractorTests(unittest.TestCase):
         )
         self.assertEqual(best.kind, "hls")
 
+    def test_choose_best_candidate_pairs_direct_video_and_audio(self) -> None:
+        best = _choose_best_candidate(
+            [
+                BrowserMediaCandidate(
+                    url="https://example.com/video.m4s",
+                    kind="direct",
+                    media_type="video",
+                    content_length=10_000,
+                    request_headers={"referer": "https://example.com/video"},
+                ),
+                BrowserMediaCandidate(
+                    url="https://example.com/audio.m4s",
+                    kind="direct",
+                    media_type="audio",
+                    content_length=2_000,
+                    request_headers={"referer": "https://example.com/audio"},
+                ),
+            ]
+        )
+
+        self.assertEqual(best.url, "https://example.com/video.m4s")
+        self.assertEqual(best.audio_url, "https://example.com/audio.m4s")
+        self.assertEqual(best.audio_request_headers["referer"], "https://example.com/audio")
+
+    def test_choose_best_candidate_honors_lowest_quality_for_direct_video(self) -> None:
+        best = _choose_best_candidate(
+            [
+                BrowserMediaCandidate(
+                    url="https://example.com/high.m4s",
+                    kind="direct",
+                    media_type="video",
+                    content_length=2_000_000,
+                    height=1080,
+                ),
+                BrowserMediaCandidate(
+                    url="https://example.com/low.m4s",
+                    kind="direct",
+                    media_type="video",
+                    content_length=500_000,
+                    height=360,
+                ),
+                BrowserMediaCandidate(
+                    url="https://example.com/audio.m4s",
+                    kind="direct",
+                    media_type="audio",
+                    content_length=200_000,
+                ),
+            ],
+            quality="lowest",
+        )
+
+        self.assertEqual(best.url, "https://example.com/low.m4s")
+        self.assertEqual(best.audio_url, "https://example.com/audio.m4s")
+
     def test_raise_if_challenge_page_detects_cloudflare(self) -> None:
         class FakePage:
             def title(self) -> str:

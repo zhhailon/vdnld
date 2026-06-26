@@ -29,6 +29,29 @@ large.m3u8
         self.assertEqual(plan.selected_url, "https://example.com/large.m3u8")
         self.assertTrue(plan.executable)
 
+    def test_plan_download_detects_magnet_links(self) -> None:
+        plan = plan_download(
+            "magnet:?xt=urn:btih:abc",
+            output="downloads/torrents",
+            fetcher=lambda url: (_ for _ in ()).throw(AssertionError("fetch should not run")),
+        )
+
+        self.assertEqual(plan.strategy, "torrent")
+        self.assertEqual(plan.extractor, "torrent")
+        self.assertEqual(plan.selected_url, "magnet:?xt=urn:btih:abc")
+        self.assertTrue(plan.executable)
+
+    def test_plan_download_detects_torrent_files(self) -> None:
+        plan = plan_download(
+            "https://example.com/file.torrent",
+            output=None,
+            fetcher=lambda url: (_ for _ in ()).throw(AssertionError("fetch should not run")),
+        )
+
+        self.assertEqual(plan.strategy, "torrent")
+        self.assertEqual(plan.extractor, "torrent")
+        self.assertTrue(plan.executable)
+
     def test_plan_download_can_select_hls_quality(self) -> None:
         def fake_fetch(url: str) -> HttpTextResponse:
             return HttpTextResponse(
@@ -235,6 +258,41 @@ seg-2.ts
         self.assertEqual(plan.extractor, "browser")
         self.assertTrue(plan.executable)
 
+    def test_plan_download_can_fall_back_to_browser_direct_video_audio_mux(self) -> None:
+        def fake_fetch(url: str) -> HttpTextResponse:
+            return HttpTextResponse(url=url, content_type="text/html", text="<html></html>")
+
+        def fake_browser(url: str) -> BrowserMediaCandidate:
+            return BrowserMediaCandidate(
+                url="https://cdn.example.com/video.m4s",
+                kind="direct",
+                media_type="video",
+                request_headers={
+                    "referer": "https://protected.example/page",
+                    "user-agent": "Mozilla/5.0",
+                },
+                audio_url="https://cdn.example.com/audio.m4s",
+                audio_request_headers={
+                    "referer": "https://protected.example/page",
+                    "user-agent": "Mozilla/5.0",
+                },
+            )
+
+        plan = plan_download(
+            "https://example.com/page",
+            output=None,
+            fetcher=fake_fetch,
+            browser_probe=fake_browser,
+        )
+
+        self.assertEqual(plan.strategy, "browser_direct_mux")
+        self.assertEqual(plan.extractor, "browser")
+        self.assertEqual(plan.selected_url, "https://cdn.example.com/video.m4s")
+        self.assertEqual(plan.audio_url, "https://cdn.example.com/audio.m4s")
+        self.assertEqual(plan.audio_request_headers["referer"], "https://protected.example/page")
+        self.assertTrue(plan.needs_merge)
+        self.assertTrue(plan.executable)
+
     def test_plan_download_ignores_browser_failure(self) -> None:
         def fake_browser(url: str) -> BrowserMediaCandidate:
             raise BrowserExtractionError("missing playwright")
@@ -284,6 +342,16 @@ seg-2.ts
     def test_run_can_skip_ffmpeg_requirement(self) -> None:
         with patch("vdnld.app.require_ffmpeg", side_effect=DependencyError("missing")):
             run("https://www.youtube.com/watch?v=test", output=None, ffmpeg_required=False)
+
+    def test_run_torrent_requires_aria2c_instead_of_ffmpeg(self) -> None:
+        with patch("vdnld.app.require_ffmpeg", side_effect=DependencyError("missing")) as require_ffmpeg_mock:
+            with patch("vdnld.app.require_aria2c", return_value="/usr/bin/aria2c") as require_aria2c_mock:
+                with patch("vdnld.app.execute_plan") as execute_plan_mock:
+                    run("magnet:?xt=urn:btih:abc", output="downloads/torrents")
+
+        require_ffmpeg_mock.assert_not_called()
+        require_aria2c_mock.assert_called_once_with()
+        execute_plan_mock.assert_called_once()
 
     def test_run_plan_only_does_not_require_ffmpeg(self) -> None:
         with patch("vdnld.app.require_ffmpeg", side_effect=DependencyError("missing")):

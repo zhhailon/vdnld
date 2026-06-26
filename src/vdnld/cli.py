@@ -10,17 +10,17 @@ from vdnld.app import run
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="vdnld",
-        description="Download and merge media from a URL.",
+        description="Download and merge media from a URL, magnet link, or .torrent file.",
     )
     parser.add_argument(
         "url",
         nargs="?",
-        help="Source page or media URL to inspect and download.",
+        help="Source page, media URL, magnet link, or .torrent file to inspect and download.",
     )
     parser.add_argument(
         "-o",
         "--output",
-        help="Target output path for the downloaded media.",
+        help="Target output path for media downloads; target directory for torrent/magnet downloads.",
     )
     parser.add_argument(
         "-q",

@@ -29,6 +29,8 @@ class DownloadPlan:
     notes: str | None = None
     executable: bool = False
     request_headers: dict[str, str] | None = None
+    audio_url: str | None = None
+    audio_request_headers: dict[str, str] | None = None
     duration_seconds: float | None = None
 
 
@@ -40,6 +42,9 @@ def plan_download(
     browser_fallback: bool = True,
     quality: str | None = None,
 ) -> DownloadPlan:
+    if _looks_like_torrent_source(url):
+        return _plan_torrent(url, output)
+
     extractor = choose_extractor(url)
 
     if extractor == "youtube":
@@ -118,6 +123,25 @@ def plan_download(
         if browser_plan is not None:
             return browser_plan
     return plan
+
+
+def _looks_like_torrent_source(url: str) -> bool:
+    lower_url = url.lower()
+    return lower_url.startswith("magnet:") or lower_url.endswith(".torrent")
+
+
+def _plan_torrent(url: str, output: str | None) -> DownloadPlan:
+    is_magnet = url.lower().startswith("magnet:")
+    return DownloadPlan(
+        url=url,
+        output=output,
+        extractor="torrent",
+        strategy="torrent",
+        needs_merge=False,
+        selected_url=url,
+        notes="magnet link; handled by aria2c" if is_magnet else "torrent file; handled by aria2c",
+        executable=True,
+    )
 
 
 def _looks_like_m3u8(url: str, response: "HttpResponseLike") -> bool:
@@ -228,7 +252,7 @@ def _plan_with_browser(
     quality: str | None = None,
 ) -> DownloadPlan | None:
     try:
-        candidate = browser_probe(url)
+        candidate = _call_browser_probe(browser_probe, url, quality=quality)
     except BrowserChallengeError as exc:
         return DownloadPlan(
             url=url,
@@ -279,6 +303,22 @@ def _plan_from_browser_candidate(
         return plan
 
     if candidate.kind == "direct":
+        audio_headers = _filter_request_headers(candidate.audio_request_headers)
+        if candidate.audio_url:
+            return DownloadPlan(
+                url=original_url,
+                output=output,
+                extractor="browser",
+                strategy="browser_direct_mux",
+                needs_merge=True,
+                title=candidate.title,
+                selected_url=candidate.url,
+                notes="direct video/audio media extracted via browser",
+                executable=True,
+                request_headers=request_headers,
+                audio_url=candidate.audio_url,
+                audio_request_headers=audio_headers,
+            )
         return DownloadPlan(
             url=original_url,
             output=output,
@@ -307,6 +347,18 @@ def _plan_from_browser_candidate(
 
 class BrowserProbe:
     def __call__(self, url: str) -> BrowserMediaCandidate: ...
+
+
+def _call_browser_probe(
+    browser_probe: "BrowserProbe",
+    url: str,
+    *,
+    quality: str | None,
+) -> BrowserMediaCandidate:
+    try:
+        return browser_probe(url, quality=quality)
+    except TypeError:
+        return browser_probe(url)
 
 
 def _fetch_browser_text(

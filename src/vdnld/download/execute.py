@@ -27,11 +27,29 @@ def execute_plan(plan: DownloadPlan, *, resume: bool = True) -> Path:
 
     source_url = plan.selected_url or plan.url
     output_path = resolve_output_path(plan)
-    if plan.strategy in {"hls_master", "hls_media"}:
+    if plan.strategy == "torrent":
+        run_aria2c_download(
+            source_url=source_url,
+            output_dir=output_path,
+            resume=resume,
+        )
+    elif plan.strategy in {"hls_master", "hls_media"}:
         run_hls_download(
             source_url=source_url,
             output_path=output_path,
             request_headers=plan.request_headers,
+            duration_seconds=plan.duration_seconds,
+            resume=resume,
+        )
+    elif plan.strategy == "browser_direct_mux":
+        if not plan.audio_url:
+            raise DownloadExecutionError("browser direct mux requires an audio URL")
+        run_direct_mux_download(
+            video_url=source_url,
+            audio_url=plan.audio_url,
+            output_path=output_path,
+            video_request_headers=plan.request_headers,
+            audio_request_headers=plan.audio_request_headers,
             duration_seconds=plan.duration_seconds,
             resume=resume,
         )
@@ -56,6 +74,9 @@ def execute_plan(plan: DownloadPlan, *, resume: bool = True) -> Path:
 def resolve_output_path(plan: DownloadPlan) -> Path:
     if plan.output:
         return Path(plan.output)
+
+    if plan.strategy == "torrent":
+        return Path("downloads")
 
     suffix = default_suffix_for_plan(plan)
     basename = derive_output_basename(plan)
@@ -214,6 +235,143 @@ def run_direct_download(
     clear_download_cache(output_path)
 
 
+def run_direct_mux_download(
+    video_url: str,
+    audio_url: str,
+    output_path: Path,
+    video_request_headers: dict[str, str] | None = None,
+    audio_request_headers: dict[str, str] | None = None,
+    duration_seconds: float | None = None,
+    *,
+    resume: bool = True,
+) -> None:
+    video_cache_target = sidecar_cache_output_path(output_path, "video")
+    audio_cache_target = sidecar_cache_output_path(output_path, "audio")
+    try:
+        video_source = download_direct_media(
+            video_url,
+            video_cache_target,
+            request_headers=video_request_headers,
+            progress_callback=_render_progress_line,
+            resume=resume,
+        )
+        audio_source = download_direct_media(
+            audio_url,
+            audio_cache_target,
+            request_headers=audio_request_headers,
+            progress_callback=_render_progress_line,
+            resume=resume,
+        )
+    except DirectDownloadError as exc:
+        print()
+        raise DownloadExecutionError(str(exc)) from exc
+
+    print()
+    try:
+        run_ffmpeg_mux_copy(
+            video_source=str(video_source),
+            audio_source=str(audio_source),
+            output_path=output_path,
+            duration_seconds=duration_seconds,
+        )
+    except DownloadExecutionError as exc:
+        raise DownloadExecutionError(f"direct mux failed: {exc}") from exc
+    clear_download_cache(video_cache_target)
+    clear_download_cache(audio_cache_target)
+
+
+def run_aria2c_download(
+    source_url: str,
+    output_dir: Path,
+    *,
+    resume: bool = True,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    command = build_aria2c_command(source_url=source_url, output_dir=output_dir, resume=resume)
+    try:
+        subprocess.run(command, check=True)
+    except KeyboardInterrupt as exc:
+        raise DownloadExecutionError("download interrupted") from exc
+    except subprocess.CalledProcessError as exc:
+        raise DownloadExecutionError(f"aria2c failed with exit code {exc.returncode}") from exc
+
+
+def build_aria2c_command(source_url: str, output_dir: Path, *, resume: bool = True) -> list[str]:
+    return [
+        "aria2c",
+        "--continue=true" if resume else "--continue=false",
+        "--seed-time=0",
+        "--summary-interval=5",
+        "--dir",
+        str(output_dir),
+        source_url,
+    ]
+
+
+def sidecar_cache_output_path(output_path: Path, label: str) -> Path:
+    suffix = output_path.suffix or ".mp4"
+    return output_path.with_name(f"{output_path.stem}.{label}{suffix}")
+
+
+def run_ffmpeg_mux_copy(
+    video_source: str,
+    audio_source: str,
+    output_path: Path,
+    duration_seconds: float | None = None,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path = partial_output_path(output_path)
+    if partial_path.exists():
+        partial_path.unlink()
+
+    command = build_ffmpeg_mux_command(
+        video_source=video_source,
+        audio_source=audio_source,
+        output_path=partial_path,
+    )
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    last_status = ""
+    stderr_tail: list[str] = []
+    had_progress_output = False
+    try:
+        assert process.stderr is not None
+        for line in process.stderr:
+            stderr_tail.append(line.rstrip())
+            stderr_tail = stderr_tail[-20:]
+            parsed = parse_ffmpeg_status_line(line, duration_seconds=duration_seconds)
+            if parsed and parsed != last_status:
+                _render_progress_line(parsed)
+                had_progress_output = True
+                last_status = parsed
+        return_code = process.wait()
+    except KeyboardInterrupt as exc:
+        process.kill()
+        process.wait()
+        if partial_path.exists():
+            partial_path.unlink()
+        if had_progress_output:
+            print()
+        raise DownloadExecutionError("download interrupted") from exc
+
+    if return_code != 0:
+        if partial_path.exists():
+            partial_path.unlink()
+        stderr_output = "\n".join(line for line in stderr_tail if line).strip()
+        if had_progress_output:
+            print()
+        raise DownloadExecutionError(stderr_output or "ffmpeg failed")
+
+    if had_progress_output:
+        print()
+    os.replace(partial_path, output_path)
+
+
 def build_ffmpeg_command(
     source_url: str,
     output_path: Path,
@@ -244,6 +402,28 @@ def build_ffmpeg_command(
         ]
     )
     return command
+
+
+def build_ffmpeg_mux_command(
+    video_source: str,
+    audio_source: str,
+    output_path: Path,
+) -> list[str]:
+    return [
+        "ffmpeg",
+        "-y",
+        "-i",
+        video_source,
+        "-i",
+        audio_source,
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c",
+        "copy",
+        str(output_path),
+    ]
 
 
 def clear_plan_cache(plan: DownloadPlan) -> tuple[Path, bool]:

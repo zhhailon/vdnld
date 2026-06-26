@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import functools
 
-from vdnld.dependencies import require_ffmpeg
+from vdnld.dependencies import require_aria2c, require_ffmpeg
 from vdnld.download.execute import DownloadExecutionError, clear_plan_cache, execute_plan
 from vdnld.download.manager import DownloadPlan, plan_download
 from vdnld.extractors.browser import capture_media_requests, interactive_capture_media_requests
@@ -49,8 +49,11 @@ def run(
     if plan_only:
         print("status: planned")
         return
-    if ffmpeg_required and plan.executable:
-        require_ffmpeg()
+    if plan.executable:
+        if plan.strategy == "torrent":
+            require_aria2c()
+        elif ffmpeg_required:
+            require_ffmpeg()
     if plan.executable:
         target = execute_plan_target(plan)
         print("status: downloading")
@@ -107,6 +110,8 @@ def _print_plan(plan: DownloadPlan) -> None:
     print(f"merge: {'yes' if plan.needs_merge else 'no'}")
     if plan.selected_url and plan.selected_url != plan.url:
         print(f"selected_url: {plan.selected_url}")
+    if plan.audio_url:
+        print(f"audio_url: {plan.audio_url}")
     if plan.notes:
         print(f"notes: {plan.notes}")
 

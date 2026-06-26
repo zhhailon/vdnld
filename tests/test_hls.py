@@ -1,8 +1,10 @@
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.error import URLError
 
 from vdnld.download.hls import (
+    _download_segment,
     download_hls_media_playlist,
     hls_state_dir,
     render_hls_progress,
@@ -76,6 +78,44 @@ seg1.ts
             self.assertTrue(playlist_path.exists())
             self.assertTrue((segments_dir / "00001.ts").exists())
             self.assertTrue(any("resume" in item for item in progress_updates))
+
+    def test_download_segment_retries_transient_failure(self) -> None:
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self) -> bytes:
+                return b"segment"
+
+        calls = 0
+
+        def fake_urlopen(request, timeout=30.0):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise URLError("temporary failure")
+            return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "00000.ts"
+
+            from unittest.mock import patch
+
+            with patch("vdnld.download.hls.urlopen", side_effect=fake_urlopen):
+                size = _download_segment(
+                    "https://example.com/seg0.ts",
+                    destination,
+                    request_headers=None,
+                    retry_delay_seconds=0,
+                )
+
+            self.assertEqual(size, len(b"segment"))
+            self.assertEqual(calls, 2)
+            self.assertEqual(destination.read_bytes(), b"segment")
+            self.assertFalse(destination.with_name("00000.ts.part").exists())
 
     def test_render_hls_progress_includes_percent_and_duration(self) -> None:
         rendered = render_hls_progress(

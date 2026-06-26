@@ -20,3 +20,16 @@ def require_ffmpeg() -> str:
             "ffmpeg was not found on PATH. Install it inside WSL and retry."
         )
     return ffmpeg
+
+
+def find_aria2c() -> str | None:
+    return which("aria2c")
+
+
+def require_aria2c() -> str:
+    aria2c = find_aria2c()
+    if aria2c is None:
+        raise DependencyError(
+            "aria2c was not found on PATH. Install aria2 inside WSL and retry."
+        )
+    return aria2c
