@@ -20,7 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-o",
         "--output",
-        help="Target output path for media downloads; target directory for torrent/magnet downloads.",
+        help="Target output path for media downloads; target directory for torrent/magnet downloads. Defaults to downloads/<auto-name>.mp4 for media.",
     )
     parser.add_argument(
         "-q",

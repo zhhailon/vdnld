@@ -126,6 +126,18 @@ class ExecutePlanTests(unittest.TestCase):
         )
         self.assertEqual(default_suffix_for_plan(plan), ".mp4")
 
+    def test_resolve_output_path_defaults_media_to_downloads_directory(self) -> None:
+        plan = DownloadPlan(
+            url="https://example.com/video.mp4",
+            output=None,
+            extractor="generic",
+            strategy="direct",
+            needs_merge=False,
+            selected_url="https://example.com/video.mp4",
+            executable=True,
+        )
+        self.assertEqual(resolve_output_path(plan), Path("downloads/video.mp4"))
+
     def test_derive_output_basename_prefers_title(self) -> None:
         plan = DownloadPlan(
             url="https://example.com/v.m3u8",
@@ -170,10 +182,10 @@ class ExecutePlanTests(unittest.TestCase):
         )
         with patch("vdnld.download.execute.run_direct_download") as run_direct:
             output_path = execute_plan(plan)
-        self.assertEqual(output_path, Path("video.mp4"))
+        self.assertEqual(output_path, Path("downloads/video.mp4"))
         run_direct.assert_called_once_with(
             source_url="https://example.com/video.mp4",
-            output_path=Path("video.mp4"),
+            output_path=Path("downloads/video.mp4"),
             request_headers=None,
             duration_seconds=None,
             resume=True,
@@ -192,10 +204,10 @@ class ExecutePlanTests(unittest.TestCase):
         )
         with patch("vdnld.download.execute.run_hls_download") as run_hls:
             output_path = execute_plan(plan)
-        self.assertEqual(output_path, Path("high.mp4"))
+        self.assertEqual(output_path, Path("downloads/high.mp4"))
         run_hls.assert_called_once_with(
             source_url="https://example.com/high.m3u8",
-            output_path=Path("high.mp4"),
+            output_path=Path("downloads/high.mp4"),
             request_headers=None,
             duration_seconds=None,
             resume=True,
@@ -271,7 +283,7 @@ class ExecutePlanTests(unittest.TestCase):
             execute_plan(plan, resume=False)
         run_direct.assert_called_once_with(
             source_url="https://example.com/video.mp4",
-            output_path=Path("video.mp4"),
+            output_path=Path("downloads/video.mp4"),
             request_headers=None,
             duration_seconds=None,
             resume=False,

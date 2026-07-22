@@ -80,7 +80,7 @@ def resolve_output_path(plan: DownloadPlan) -> Path:
 
     suffix = default_suffix_for_plan(plan)
     basename = derive_output_basename(plan)
-    return Path(basename).with_suffix(suffix)
+    return Path("downloads") / Path(basename).with_suffix(suffix)
 
 
 def default_suffix_for_plan(plan: DownloadPlan) -> str:

@@ -45,7 +45,7 @@ Set `UV_CACHE_DIR=/tmp/uv-cache` to control where uv stores its cache (useful in
 | Flag | Description |
 |------|-------------|
 | `url` | Source page, media URL, magnet link, or `.torrent` file |
-| `-o / --output` | Output file path for media downloads; output directory for torrent/magnet downloads |
+| `-o / --output` | Output file path for media downloads; output directory for torrent/magnet downloads. If omitted, media saves under `downloads/` |
 | `-q / --quality` | HLS quality for master playlists: `highest`, `lowest`, `720p`, or `1280x720` |
 | `--browser` | Enable Playwright headless browser fallback |
 | `--interactive-browser` | Open a visible browser for manual login/playback, then resume |
@@ -76,6 +76,7 @@ Set `UV_CACHE_DIR=/tmp/uv-cache` to control where uv stores its cache (useful in
 - Downloads direct media to a local cache and remuxes with `ffmpeg -c copy`
 - Downloads HLS segments to a local cache and remuxes with `ffmpeg -c copy`
 - Downloads magnet links and `.torrent` files with `aria2c`
+- Saves auto-named media downloads under `downloads/`
 - Resumes interrupted downloads from a `.<name>.vdnld/` cache directory
 - Renders live ffmpeg progress (percentage bar when duration is known, elapsed time otherwise)
 - Fails early with a clear error if `ffmpeg` is not on `PATH`
