@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from vdnld.dependencies import DependencyError, find_ffmpeg, require_ffmpeg
+from vdnld.dependencies import DependencyError, find_ffmpeg, find_whisper, require_ffmpeg, require_whisper
 
 
 class DependencyTests(unittest.TestCase):
@@ -13,6 +13,15 @@ class DependencyTests(unittest.TestCase):
         with patch("vdnld.dependencies.which", return_value=None):
             with self.assertRaises(DependencyError):
                 require_ffmpeg()
+
+    def test_find_whisper_returns_binary_when_available(self) -> None:
+        with patch("vdnld.dependencies.which", return_value="/usr/bin/whisper"):
+            self.assertEqual(find_whisper(), "/usr/bin/whisper")
+
+    def test_require_whisper_raises_when_missing(self) -> None:
+        with patch("vdnld.dependencies.which", return_value=None):
+            with self.assertRaises(DependencyError):
+                require_whisper()
 
 
 if __name__ == "__main__":

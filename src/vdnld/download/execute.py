@@ -40,10 +40,21 @@ def execute_plan(plan: DownloadPlan, *, resume: bool = True) -> Path:
             request_headers=plan.request_headers,
             duration_seconds=plan.duration_seconds,
             resume=resume,
+            audio_only=plan.audio_only,
         )
     elif plan.strategy == "browser_direct_mux":
         if not plan.audio_url:
             raise DownloadExecutionError("browser direct mux requires an audio URL")
+        if plan.audio_only:
+            run_direct_download(
+                source_url=plan.audio_url,
+                output_path=output_path,
+                request_headers=plan.audio_request_headers,
+                duration_seconds=plan.duration_seconds,
+                resume=resume,
+                audio_only=True,
+            )
+            return output_path
         run_direct_mux_download(
             video_url=source_url,
             audio_url=plan.audio_url,
@@ -54,19 +65,30 @@ def execute_plan(plan: DownloadPlan, *, resume: bool = True) -> Path:
             resume=resume,
         )
     elif plan.strategy in {"direct", "browser_direct", "youtube_direct"}:
-        run_direct_download(
-            source_url=source_url,
-            output_path=output_path,
-            request_headers=plan.request_headers,
-            duration_seconds=plan.duration_seconds,
-            resume=resume,
-        )
+        if plan.strategy == "browser_direct" and plan.audio_only:
+            run_ffmpeg_copy(
+                source_url=source_url,
+                output_path=output_path,
+                request_headers=plan.request_headers,
+                duration_seconds=plan.duration_seconds,
+                audio_only=True,
+            )
+        else:
+            run_direct_download(
+                source_url=source_url,
+                output_path=output_path,
+                request_headers=plan.request_headers,
+                duration_seconds=plan.duration_seconds,
+                resume=resume,
+                audio_only=plan.audio_only,
+            )
     else:
         run_ffmpeg_copy(
             source_url=source_url,
             output_path=output_path,
             request_headers=plan.request_headers,
             duration_seconds=plan.duration_seconds,
+            audio_only=plan.audio_only,
         )
     return output_path
 
@@ -84,9 +106,18 @@ def resolve_output_path(plan: DownloadPlan) -> Path:
 
 
 def default_suffix_for_plan(plan: DownloadPlan) -> str:
+    if plan.audio_only:
+        return audio_suffix_for_url(plan.audio_url or plan.selected_url or plan.url)
     if plan.strategy in {"hls_master", "hls_media"}:
         return ".mp4"
     return ".mp4"
+
+
+def audio_suffix_for_url(url: str) -> str:
+    suffix = Path(urlparse(url).path).suffix.lower()
+    if suffix in {".m4a", ".mp3", ".aac", ".opus", ".ogg"}:
+        return suffix
+    return ".m4a"
 
 
 def derive_output_basename(plan: DownloadPlan) -> str:
@@ -113,6 +144,7 @@ def run_ffmpeg_copy(
     *,
     local_input: bool = False,
     local_hls: bool = False,
+    audio_only: bool = False,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     partial_path = partial_output_path(output_path)
@@ -125,6 +157,7 @@ def run_ffmpeg_copy(
         request_headers=request_headers,
         local_input=local_input,
         local_hls=local_hls,
+        audio_only=audio_only,
     )
     process = subprocess.Popen(
         command,
@@ -176,6 +209,7 @@ def run_hls_download(
     duration_seconds: float | None = None,
     *,
     resume: bool = True,
+    audio_only: bool = False,
 ) -> None:
     try:
         local_playlist = download_hls_media_playlist(
@@ -196,6 +230,7 @@ def run_hls_download(
             output_path=output_path,
             duration_seconds=duration_seconds,
             local_hls=True,
+            audio_only=audio_only,
         )
     except DownloadExecutionError as exc:
         raise DownloadExecutionError(f"hls mux failed: {exc}") from exc
@@ -209,6 +244,7 @@ def run_direct_download(
     duration_seconds: float | None = None,
     *,
     resume: bool = True,
+    audio_only: bool = False,
 ) -> None:
     try:
         local_source = download_direct_media(
@@ -229,6 +265,7 @@ def run_direct_download(
             output_path=output_path,
             duration_seconds=duration_seconds,
             local_input=True,
+            audio_only=audio_only,
         )
     except DownloadExecutionError as exc:
         raise DownloadExecutionError(f"direct mux failed: {exc}") from exc
@@ -379,6 +416,7 @@ def build_ffmpeg_command(
     *,
     local_input: bool = False,
     local_hls: bool = False,
+    audio_only: bool = False,
 ) -> list[str]:
     command = [
         "ffmpeg",
@@ -392,15 +430,12 @@ def build_ffmpeg_command(
         # such as .jpeg even when the payload is valid media data.
         command.extend(["-allowed_extensions", "ALL"])
         command.extend(["-protocol_whitelist", "file,crypto,data"])
-    command.extend(
-        [
-        "-i",
-        source_url,
-        "-c",
-        "copy",
-        str(output_path),
-        ]
-    )
+    command.extend(["-i", source_url])
+    if audio_only:
+        command.extend(["-vn", "-c:a", "copy"])
+    else:
+        command.extend(["-c", "copy"])
+    command.append(str(output_path))
     return command
 
 

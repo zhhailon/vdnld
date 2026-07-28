@@ -33,3 +33,16 @@ def require_aria2c() -> str:
             "aria2c was not found on PATH. Install aria2 inside WSL and retry."
         )
     return aria2c
+
+
+def find_whisper() -> str | None:
+    return which("whisper")
+
+
+def require_whisper() -> str:
+    whisper = find_whisper()
+    if whisper is None:
+        raise DependencyError(
+            "whisper was not found on PATH. Install OpenAI Whisper inside WSL and retry."
+        )
+    return whisper

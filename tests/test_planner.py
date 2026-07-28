@@ -1,9 +1,10 @@
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from vdnld.app import run
 from vdnld.dependencies import DependencyError
-from vdnld.download.manager import plan_download
+from vdnld.download.manager import DownloadPlan, plan_download
 from vdnld.extractors.browser import BrowserChallengeError, BrowserExtractionError, BrowserMediaCandidate
 from vdnld.net.http import FetchError, HttpTextResponse
 
@@ -293,6 +294,40 @@ seg-2.ts
         self.assertTrue(plan.needs_merge)
         self.assertTrue(plan.executable)
 
+    def test_plan_download_can_fall_back_to_browser_audio_only(self) -> None:
+        def fake_fetch(url: str) -> HttpTextResponse:
+            return HttpTextResponse(url=url, content_type="text/html", text="<html></html>")
+
+        def fake_browser(url: str, *, quality: str | None = None, audio_only: bool = False) -> BrowserMediaCandidate:
+            self.assertTrue(audio_only)
+            return BrowserMediaCandidate(
+                url="https://cdn.example.com/audio.m4a",
+                kind="direct",
+                media_type="audio",
+                duration_seconds=8575.0,
+                request_headers={
+                    "referer": "https://protected.example/page",
+                    "user-agent": "Mozilla/5.0",
+                },
+            )
+
+        plan = plan_download(
+            "https://example.com/page",
+            output=None,
+            fetcher=fake_fetch,
+            browser_probe=fake_browser,
+            audio_only=True,
+        )
+
+        self.assertEqual(plan.strategy, "browser_direct")
+        self.assertEqual(plan.extractor, "browser")
+        self.assertEqual(plan.selected_url, "https://cdn.example.com/audio.m4a")
+        self.assertEqual(plan.request_headers["referer"], "https://protected.example/page")
+        self.assertEqual(plan.duration_seconds, 8575.0)
+        self.assertTrue(plan.audio_only)
+        self.assertFalse(plan.needs_merge)
+        self.assertTrue(plan.executable)
+
     def test_plan_download_ignores_browser_failure(self) -> None:
         def fake_browser(url: str) -> BrowserMediaCandidate:
             raise BrowserExtractionError("missing playwright")
@@ -406,6 +441,52 @@ seg-2.ts
                     plan_only=True,
                 )
         execute_plan_mock.assert_not_called()
+
+    def test_run_transcribes_after_successful_download(self) -> None:
+        with patch("vdnld.app.require_ffmpeg", return_value="/usr/bin/ffmpeg") as require_ffmpeg_mock:
+            with patch("vdnld.app.require_whisper", return_value="/usr/bin/whisper") as require_whisper_mock:
+                with patch("vdnld.app.plan_download") as plan_download_mock:
+                    plan_download_mock.return_value = DownloadPlan(
+                        url="https://example.com/video.mp4",
+                        output=None,
+                        extractor="generic",
+                        strategy="direct",
+                        needs_merge=False,
+                        selected_url="https://example.com/video.mp4",
+                        executable=True,
+                    )
+                    with patch("vdnld.app.execute_plan", return_value=Path("downloads/video.mp4")):
+                        with patch("vdnld.app.transcribe_media", return_value=[Path("downloads/video.txt")]) as transcribe_mock:
+                            run(
+                                "https://example.com/video.mp4",
+                                output=None,
+                                transcribe=True,
+                                whisper_model="small",
+                                whisper_language="English",
+                                transcript_format="txt",
+                                transcript_output="downloads",
+                            )
+
+        require_ffmpeg_mock.assert_called_once_with()
+        require_whisper_mock.assert_called_once_with()
+        transcribe_mock.assert_called_once_with(
+            Path("downloads/video.mp4"),
+            output_dir=Path("downloads"),
+            model="small",
+            language="English",
+            output_format="txt",
+        )
+
+    def test_run_plan_only_does_not_require_whisper(self) -> None:
+        with patch("vdnld.app.require_whisper") as require_whisper_mock:
+            run(
+                "https://www.youtube.com/watch?v=test",
+                output=None,
+                transcribe=True,
+                plan_only=True,
+            )
+
+        require_whisper_mock.assert_not_called()
 
     def test_run_can_clear_cache_and_skip_execution(self) -> None:
         with patch("vdnld.app.clear_plan_cache", return_value=("output.mp4", True)) as clear_cache_mock:

@@ -44,6 +44,17 @@ class ExecutePlanTests(unittest.TestCase):
         self.assertIn("referer: https://example.com", header_blob)
         self.assertIn("user-agent: vdnld-test", header_blob)
 
+    def test_build_ffmpeg_command_can_extract_audio_only(self) -> None:
+        command = build_ffmpeg_command(
+            source_url=".video.vdnld/source.mp4",
+            output_path=Path("audio.m4a"),
+            local_input=True,
+            audio_only=True,
+        )
+        self.assertIn("-vn", command)
+        self.assertIn("-c:a", command)
+        self.assertNotIn("-c", command)
+
     def test_build_ffmpeg_mux_command_maps_video_and_audio(self) -> None:
         command = build_ffmpeg_mux_command(
             video_source=".video.vdnld/source.m4s",
@@ -138,6 +149,19 @@ class ExecutePlanTests(unittest.TestCase):
         )
         self.assertEqual(resolve_output_path(plan), Path("downloads/video.mp4"))
 
+    def test_resolve_output_path_defaults_audio_only_media_to_m4a(self) -> None:
+        plan = DownloadPlan(
+            url="https://example.com/video.mp4",
+            output=None,
+            extractor="generic",
+            strategy="direct",
+            needs_merge=False,
+            selected_url="https://example.com/video.mp4",
+            executable=True,
+            audio_only=True,
+        )
+        self.assertEqual(resolve_output_path(plan), Path("downloads/video.m4a"))
+
     def test_derive_output_basename_prefers_title(self) -> None:
         plan = DownloadPlan(
             url="https://example.com/v.m3u8",
@@ -189,6 +213,35 @@ class ExecutePlanTests(unittest.TestCase):
             request_headers=None,
             duration_seconds=None,
             resume=True,
+            audio_only=False,
+        )
+
+    def test_execute_plan_routes_browser_audio_only_to_remote_ffmpeg(self) -> None:
+        plan = DownloadPlan(
+            url="https://example.com/page",
+            output=None,
+            extractor="browser",
+            strategy="browser_direct",
+            needs_merge=False,
+            title="Browser Audio",
+            selected_url="https://cdn.example.com/audio.m4s",
+            executable=True,
+            request_headers={"referer": "https://example.com/page"},
+            duration_seconds=8575.0,
+            audio_only=True,
+        )
+        with patch("vdnld.download.execute.run_direct_download") as run_direct:
+            with patch("vdnld.download.execute.run_ffmpeg_copy") as run_ffmpeg:
+                output_path = execute_plan(plan)
+
+        self.assertEqual(output_path, Path("downloads/Browser Audio.m4a"))
+        run_direct.assert_not_called()
+        run_ffmpeg.assert_called_once_with(
+            source_url="https://cdn.example.com/audio.m4s",
+            output_path=Path("downloads/Browser Audio.m4a"),
+            request_headers={"referer": "https://example.com/page"},
+            duration_seconds=8575.0,
+            audio_only=True,
         )
 
     def test_execute_plan_routes_hls_to_resumable_downloader(self) -> None:
@@ -211,6 +264,7 @@ class ExecutePlanTests(unittest.TestCase):
             request_headers=None,
             duration_seconds=None,
             resume=True,
+            audio_only=False,
         )
 
     def test_execute_plan_routes_browser_direct_mux_to_video_audio_downloader(self) -> None:
@@ -287,6 +341,7 @@ class ExecutePlanTests(unittest.TestCase):
             request_headers=None,
             duration_seconds=None,
             resume=False,
+            audio_only=False,
         )
 
     def test_run_direct_download_clears_cache_after_successful_mux(self) -> None:

@@ -28,6 +28,7 @@ class BrowserMediaCandidate:
     audio_url: str | None = None
     audio_request_headers: dict[str, str] | None = None
     height: int | None = None
+    duration_seconds: float | None = None
 
 
 def capture_media_requests(
@@ -36,6 +37,7 @@ def capture_media_requests(
     *,
     proxy_url: str | None = None,
     quality: str | None = None,
+    audio_only: bool = False,
 ) -> BrowserMediaCandidate:
     return _capture_media_requests(
         url=url,
@@ -43,6 +45,7 @@ def capture_media_requests(
         headless=False,
         proxy_url=proxy_url,
         quality=quality,
+        audio_only=audio_only,
     )
 
 
@@ -52,6 +55,7 @@ def interactive_capture_media_requests(
     *,
     proxy_url: str | None = None,
     quality: str | None = None,
+    audio_only: bool = False,
     prompt_fn: PromptFn = input,
     printer: PrintFn = print,
 ) -> BrowserMediaCandidate:
@@ -62,6 +66,7 @@ def interactive_capture_media_requests(
         interactive=True,
         proxy_url=proxy_url,
         quality=quality,
+        audio_only=audio_only,
         prompt_fn=prompt_fn,
         printer=printer,
     )
@@ -75,6 +80,7 @@ def _capture_media_requests(
     interactive: bool = False,
     proxy_url: str | None = None,
     quality: str | None = None,
+    audio_only: bool = False,
     prompt_fn: PromptFn | None = None,
     printer: PrintFn | None = None,
 ) -> BrowserMediaCandidate:
@@ -165,7 +171,7 @@ def _capture_media_requests(
     if not candidates:
         raise BrowserExtractionError("no media requests were observed during browser playback")
 
-    return _choose_best_candidate(candidates, quality=quality)
+    return _choose_best_candidate(candidates, quality=quality, audio_only=audio_only)
 
 
 def _launch_browser(playwright: object, *, headless: bool) -> object:
@@ -291,7 +297,13 @@ def _choose_best_candidate(
     candidates: list[BrowserMediaCandidate],
     *,
     quality: str | None = None,
+    audio_only: bool = False,
 ) -> BrowserMediaCandidate:
+    if audio_only:
+        audio_candidates = [item for item in candidates if item.kind == "direct" and item.media_type == "audio"]
+        if audio_candidates:
+            return max(audio_candidates, key=lambda item: item.content_length)
+
     hls_candidates = [item for item in candidates if item.kind == "hls"]
     if hls_candidates:
         return max(hls_candidates, key=lambda item: item.content_length)
@@ -382,6 +394,7 @@ def _bilibili_playinfo_candidates(
               const pickUrl = (item) => item.baseUrl || item.base_url || (item.backupUrl && item.backupUrl[0]) || (item.backup_url && item.backup_url[0]);
               return {
                 userAgent: navigator.userAgent,
+                duration: dash.duration || null,
                 video: (dash.video || []).map((item) => ({
                   url: pickUrl(item),
                   bandwidth: item.bandwidth || -1,
@@ -410,6 +423,7 @@ def _bilibili_playinfo_candidates(
         request_headers["user-agent"] = user_agent
 
     candidates: list[BrowserMediaCandidate] = []
+    duration_seconds = _float_or_none(playinfo.get("duration"))
     for item in playinfo.get("video") or []:
         candidates.append(
             BrowserMediaCandidate(
@@ -420,6 +434,7 @@ def _bilibili_playinfo_candidates(
                 content_length=item.get("bandwidth") or -1,
                 media_type="video",
                 height=item.get("height"),
+                duration_seconds=duration_seconds,
             )
         )
     for item in playinfo.get("audio") or []:
@@ -431,9 +446,19 @@ def _bilibili_playinfo_candidates(
                 request_headers=request_headers,
                 content_length=item.get("bandwidth") or -1,
                 media_type="audio",
+                duration_seconds=duration_seconds,
             )
         )
     return candidates
+
+
+def _float_or_none(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _raise_if_challenge_page(page: object) -> None:

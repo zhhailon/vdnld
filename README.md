@@ -27,6 +27,8 @@
 uv run vdnld --help
 uv run vdnld https://example.com/video
 uv run vdnld https://example.com/video -o output.mp4
+uv run vdnld https://example.com/video --audio-only
+uv run vdnld https://example.com/video --transcribe --whisper-model small
 uv run vdnld https://example.com/master.m3u8 --quality 720p
 uv run vdnld --browser https://example.com/page
 uv run vdnld --interactive-browser https://example.com/page
@@ -47,6 +49,12 @@ Set `UV_CACHE_DIR=/tmp/uv-cache` to control where uv stores its cache (useful in
 | `url` | Source page, media URL, magnet link, or `.torrent` file |
 | `-o / --output` | Output file path for media downloads; output directory for torrent/magnet downloads. If omitted, media saves under `downloads/` |
 | `-q / --quality` | HLS quality for master playlists: `highest`, `lowest`, `720p`, or `1280x720` |
+| `--audio-only` | Download or extract audio only. If output is omitted, saves as `downloads/<auto-name>.m4a` |
+| `--transcribe` | Run Whisper after download to transcribe the saved audio or video |
+| `--whisper-model` | Whisper model name to use when transcribing |
+| `--whisper-language` | Language hint passed to Whisper |
+| `--transcript-format` | Transcript output format: `txt`, `srt`, `vtt`, `json`, `tsv`, or `all`. Defaults to `txt` |
+| `--transcript-output` | Directory for transcript files. Defaults to the downloaded media directory |
 | `--browser` | Enable Playwright headless browser fallback |
 | `--interactive-browser` | Open a visible browser for manual login/playback, then resume |
 | `--plan-only` | Print the download plan and exit without running ffmpeg |
@@ -75,6 +83,8 @@ Set `UV_CACHE_DIR=/tmp/uv-cache` to control where uv stores its cache (useful in
 **Execution:**
 - Downloads direct media to a local cache and remuxes with `ffmpeg -c copy`
 - Downloads HLS segments to a local cache and remuxes with `ffmpeg -c copy`
+- Can save audio only from direct, HLS, and browser-discovered DASH media
+- Can transcribe downloaded audio or video with an installed Whisper CLI
 - Downloads magnet links and `.torrent` files with `aria2c`
 - Saves auto-named media downloads under `downloads/`
 - Resumes interrupted downloads from a `.<name>.vdnld/` cache directory
@@ -103,4 +113,11 @@ Playwright is required only when using `--browser` or `--interactive-browser`:
 ```bash
 uv add playwright
 uv run playwright install chromium
+```
+
+Whisper is required only when using `--transcribe`:
+
+```bash
+uv tool install openai-whisper
+which whisper
 ```

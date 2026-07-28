@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import functools
+from pathlib import Path
 
-from vdnld.dependencies import require_aria2c, require_ffmpeg
+from vdnld.dependencies import require_aria2c, require_ffmpeg, require_whisper
 from vdnld.download.execute import DownloadExecutionError, clear_plan_cache, execute_plan
 from vdnld.download.manager import DownloadPlan, plan_download
 from vdnld.extractors.browser import capture_media_requests, interactive_capture_media_requests
+from vdnld.transcribe import TranscriptionError, transcribe_media
 
 
 def run(
@@ -15,6 +17,12 @@ def run(
     output: str | None,
     *,
     quality: str | None = None,
+    audio_only: bool = False,
+    transcribe: bool = False,
+    whisper_model: str | None = None,
+    whisper_language: str | None = None,
+    transcript_format: str = "txt",
+    transcript_output: str | None = None,
     ffmpeg_required: bool = True,
     browser_fallback: bool = False,
     interactive_browser: bool = False,
@@ -39,6 +47,7 @@ def run(
         browser_fallback=browser_fallback or interactive_browser,
         browser_probe=browser_probe,
         quality=quality,
+        audio_only=audio_only,
     )
     _print_plan(plan)
     if clear_cache:
@@ -54,6 +63,8 @@ def run(
             require_aria2c()
         elif ffmpeg_required:
             require_ffmpeg()
+        if transcribe:
+            require_whisper()
     if plan.executable:
         target = execute_plan_target(plan)
         print("status: downloading")
@@ -66,6 +77,23 @@ def run(
         return
     print(f"status: downloaded")
     print(f"saved_to: {output_path}")
+    if transcribe:
+        print("status: transcribing")
+        try:
+            transcript_paths = transcribe_media(
+                output_path,
+                output_dir=Path(transcript_output) if transcript_output else None,
+                model=whisper_model,
+                language=whisper_language,
+                output_format=transcript_format,
+            )
+        except TranscriptionError as exc:
+            print("status: not transcribed")
+            print(f"reason: {exc}")
+            return
+        print("status: transcribed")
+        for transcript_path in transcript_paths:
+            print(f"transcript: {transcript_path}")
 
 
 def _print_tor_info() -> None:
@@ -107,6 +135,8 @@ def _print_plan(plan: DownloadPlan) -> None:
         print(f"title: {plan.title}")
     print(f"strategy: {plan.strategy}")
     print(f"extractor: {plan.extractor}")
+    if plan.audio_only:
+        print("media: audio-only")
     print(f"merge: {'yes' if plan.needs_merge else 'no'}")
     if plan.selected_url and plan.selected_url != plan.url:
         print(f"selected_url: {plan.selected_url}")

@@ -94,6 +94,30 @@ class BrowserExtractorTests(unittest.TestCase):
         self.assertEqual(best.url, "https://example.com/low.m4s")
         self.assertEqual(best.audio_url, "https://example.com/audio.m4s")
 
+    def test_choose_best_candidate_can_select_audio_only(self) -> None:
+        best = _choose_best_candidate(
+            [
+                BrowserMediaCandidate(
+                    url="https://example.com/video.m4s",
+                    kind="direct",
+                    media_type="video",
+                    content_length=10_000,
+                ),
+                BrowserMediaCandidate(
+                    url="https://example.com/audio.m4a",
+                    kind="direct",
+                    media_type="audio",
+                    content_length=2_000,
+                    duration_seconds=123.0,
+                ),
+            ],
+            audio_only=True,
+        )
+
+        self.assertEqual(best.url, "https://example.com/audio.m4a")
+        self.assertEqual(best.media_type, "audio")
+        self.assertEqual(best.duration_seconds, 123.0)
+
     def test_raise_if_challenge_page_detects_cloudflare(self) -> None:
         class FakePage:
             def title(self) -> str:
